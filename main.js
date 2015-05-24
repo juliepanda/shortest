@@ -18,7 +18,13 @@ var fullUrl = url + query;
 
 request(fullUrl, function(err, res, body) {
   if (!err && res.statusCode == 200) {
-    console.log(JSON.parse(body).nodes) // Show the HTML for the Google homepage.
+    body = JSON.parse(body);
+    for (var i = 0; i < body['elements'].length; i++){
+      console.log('index', i);
+      console.log(JSON.stringify(body['elements'][i]['tags']['height']) + '\n');
+      //console.log(JSON.stringify(body['elements'][i]['tags']['building']));
+     // console.log(JSON.stringify(body['elements'][i]['tags']['height']));
+    }
   }
 });
 
