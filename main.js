@@ -74,15 +74,20 @@ var apiCall = function(query) {
 var heightList = new Object();
 var shadowList = new Object();
 var cordList = new Object();
+var badnessList = new Object();
+badnessList['walk'] = 0;
+badnessList['drive'] = 0;
+badnessList['bike'] = 0;
+
 
 /*
- * MAIN DRIVER:
+ * MAIN DRIVER FOR GETTING BUILDING HEIGHT/SHADOW:
  * Collect height of all nodes.ways in a designated block
+ * 3 types: walk, drive, bike
  * */
-var fetchHeight = function(A, B) {
+var fetchHeight = function(A, B, type) {
   var str = parseInput(A, B);
   var query = formattingRect(str[0], str[1], str[2], str[3]);
-
   request(apiCall(query), function(err, res, body) {
     if (!err && res.statusCode == 200) {
       var nodeBlock = "";
@@ -95,7 +100,7 @@ var fetchHeight = function(A, B) {
           heightList[nodeId] = body['elements'][i]['tags']['height'];
         }
       }
-      fetchNodes(nodeBlock);
+      fetchNodes(nodeBlock, type);
     } else {
       console.log('fetchHeight() failed');
     }
@@ -107,7 +112,7 @@ var fetchHeight = function(A, B) {
  * Outputs nodeIds and their corresponding latitude/longitude
  * @param nodeBlock - correctly formated QL code to get nodes from Overpass API
  * */
-var fetchNodes = function(nodeBlock) {
+var fetchNodes = function(nodeBlock, type) {
   request(apiCall(getQuery(nodeBlock)), function(err, res, body) {
     if (!err && res.statusCode == 200) {
       body = JSON.parse(body);
@@ -115,7 +120,7 @@ var fetchNodes = function(nodeBlock) {
         nodeId = body['elements'][i]['id'];
         cordList[nodeId] = ('' + body['elements'][i]['lat'] + ',' + body['elements'][i]['lon'] + '');
       }
-      getShadow();
+      getShadow(type);
     } else {
       console.log('fetchNodes() failed: rectangle sized too big');
     }
@@ -133,9 +138,10 @@ var getShadowLength = function(buildingHeight, sunAltitude) {
 /*
  * Calculates the shadow lenght of each building depending on sun's altitude at that time
  * */
-var getShadow = function() {
-  console.log(cordList)
+var getShadow = function(type) {
+  var badness = 0;
   var firstKey = Object.keys(cordList)[0];
+  console.log(firstKey);
   var str = cordList[firstKey].split(',');
   var position = SunCalc.getPosition(new Date(), str[0], str[1]);
   /*
@@ -152,12 +158,99 @@ var getShadow = function() {
      UNCOMMENT THIS AFTER DEMO AND PEOPLE CAN'T USE IT AT NIGHT ANYMORE
      */
 
-  // REMEMBER TO TEST WHEN THE SUN IS UP
+  // DEMO USE ONLY CODE
   for (key in cordList) {
     shadowList[key] = getShadowLength(heightList[key], position.altitude);
+    badnessList[type] = getShadowLength(heightList[key], position.altitude) + badnessList[type];
   }
-  console.log(shadowList);
+  console.log(badnessList);
 }
+
+
+var url = 'https://maps.googleapis.com/maps/api/directions/json?';
+var origin = function(src) { return 'origin=' + src; }
+var destination = function(dest) { return 'destination='+ dest; }
+var mode = function(m) { return 'mode=' + m; }
+var alternative = function(alt) { return 'alternative=' + alt; }
+
+var directionUrl = function(src, dest, travel) { 
+  return url + origin(src) + '&' + destination(dest) + '&' + mode(travel) + '&' + API_KEY };
+
+  var cordString = function(latitude, longitude) { return '' + latitude + ',' + longitude +'';}
+
+  var requestWalk = function( url, A, B ) {
+    request( url, function(err, res, body) {
+      if (!err) {
+        body = JSON.parse(body);
+        var steps = body.routes[0].legs[0].steps;
+        for (i=0; i< steps.length; i++) {
+          if (i===0) {
+            fetchHeight(A, cordString(steps[0].start_location.lat, steps[0].start_location.lng), 'walk');
+          } else {
+            var lat = steps[i].start_location.lat;
+            var lon = steps[i].start_location.lng;
+            var prevlat = steps[i-1].start_location.lat;
+            var prevlon = steps[i-1].start_location.lng;
+            fetchHeight(cordString(prevlat, prevlon), cordString(lat, lon), 'walk');
+          }
+
+        }
+        requestDrive(directionUrl('driving'), A, B);
+      } else {
+        console.log('urlwalk didnt work');
+      }
+    })
+  }
+
+  var requestDrive = function( url, A, B ) {
+    request(url, function(err, res, body) {
+      if (!err) {
+        //console.log(body);
+        body = JSON.parse(body);
+        var steps = body.routes[0].legs[0].steps;
+        for (i=0; i< steps.length; i++) {
+          if (i===0) {
+            fetchHeight(A, cordString(steps[0].start_location.lat, steps[0].start_location.lng), 'drive');
+          } else {
+            var lat = steps[i].start_location.lat;
+            var lon = steps[i].start_location.lng;
+            var prevlat = steps[i-1].start_location.lat;
+            var prevlon = steps[i-1].start_location.lng;
+            fetchHeight(cordString(prevlat, prevlon), cordString(lat, lon), 'drive');
+          }
+
+        }
+        requestBike(directionUrl('bicycling'), A, B);
+      } else {
+        console.log('urldrive route didnt work');
+      }
+    })
+  }
+
+  var requestBike = function(url, A, B) {
+    request(url, function(err, res, body) {
+      if (!err) {
+        body = JSON.parse(body);
+        var steps = body.routes[0].legs[0].steps;
+        for (i=0; i< steps.length; i++) {
+          if (i===0) {
+            fetchHeight(A, cordString(steps[0].start_location.lat, steps[0].start_location.lng), 'bike');
+          } else {
+            var lat = steps[i].start_location.lat;
+            var lon = steps[i].start_location.lng;
+            var prevlat = steps[i-1].start_location.lat;
+            var prevlon = steps[i-1].start_location.lng;
+            fetchHeight(cordString(prevlat, prevlon), cordString(lat, lon), 'bike');
+          }
+
+        }
+      } else {
+        console.log('urlbike route didnt work');
+      }
+      determineBestPath();
+    })
+  }
+
 
 
 
@@ -167,59 +260,7 @@ var getShadow = function() {
 var A = "40.739847,-73.999396";
 var B = "40.740045,-74.000902";
 
-//fetchHeight(A, B);
-//
-//
-//
-var url = 'https://maps.googleapis.com/maps/api/directions/json?';
-var origin = function(src) { return 'origin=' + src; }
-var destination = function(dest) { return 'destination='+ dest; }
-var mode = function(m) { return 'mode=' + m; }
-var alternative = function(alt) { return 'alternative=' + alt; }
-
-
-urlwalk = url + origin("40.730847,-73.990396") + '&' + destination("40.740045,-74.000902") + '&' + mode('walking') + '&' + alternative('true') + '&' + API_KEY;
-
-urldrive = url + origin("40.730847,-73.990396") + '&' + destination("40.740045,-74.000902") + '&' + mode('driving') + '&' + alternative('true') + '&' + API_KEY;
-
-urlbike = url + origin("40.730847,-73.990396") + '&' + destination("40.740045,-74.000902") + '&' + mode('bicycling') + '&' + alternative('true') + '&' + API_KEY;
-
-
-var requestWalk = function(urlwalk) {
-  request(urlwalk, function(err, res, body) {
-    if (!err) {
-      body = JSON.parse(body);
-      console.log(body.routes[0].legs[0].steps[0]);
-      //requestDrive(urldrive);
-    } else {
-      console.log('urlwalk didnt work');
-    }
-  })
-}
-
-var requestDrive = function(urldrive) {
-  request(urldrive, function(err, res, body) {
-    if (!err) {
-      //console.log(body);
-      requestBike(urlbike);
-    } else {
-      console.log('urldrive route didnt work');
-    }
-  })
-}
-
-var requestBike = function(urlbike) {
-  request(urlbike, function(err, res, body) {
-    if (!err) {
-      console.log(body);
-    } else {
-      console.log('urlbike route didnt work');
-    }
-  })
-}
-
-
-requestWalk(urlwalk);
+  requestWalk(directionUrl(A, B, 'walking'), A, B);
 
 
 
