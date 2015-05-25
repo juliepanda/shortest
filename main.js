@@ -1,5 +1,7 @@
 var SunCalc = require('suncalc');
 var request = require('request');
+var gm = require('googlemaps');
+var util = require('util');
 
 
 /*
@@ -30,11 +32,12 @@ var formattingRect = function(bottom, left, top, right) {
   }
 
   var cords = "(" + bottom + "," + left + "," + top + "," + right + ");";
-  return  "[out:json][timeout:25];(" + 
+  return "[out:json][timeout:25];(" + 
     "node[%22height%22][%22building%22]" + cords + 
     "way[%22height%22][%22building%22]" + cords +
     "relation[%22height%22][%22building%22]" + cords +
     ");out;";
+
 }
 
 /*
@@ -55,22 +58,28 @@ var getQuery = function(block){
 
 
 /*
- * @param query - finalize url formatting to make API call, used inside getHeight()
+ * @param query - finalize url formatting to make API call, used inside fetchHeight()
  * */
 var apiCall = function(query) {
   var url = "http://overpass-api.de/api/interpreter?data="
   return url + query;
 }
 
-
-// initialize variables to store callbacks
-var nodeList = new Object();
+/*
+ * Initialize variables to store callback values in the following formats:
+ * heightList - (nodeId, buildingHeight)
+ * cordList - (nodeId, 'latitude, longitude')
+ * shadowList - (nodeId, shadowLength)
+ * */
+var heightList = new Object();
+var shadowList = new Object();
+var cordList = new Object();
 
 /*
  * MAIN DRIVER:
  * Collect height of all nodes.ways in a designated block
  * */
-var getHeight = function(A, B) {
+var fetchHeight = function(A, B) {
   var str = parseInput(A, B);
   var query = formattingRect(str[0], str[1], str[2], str[3]);
 
@@ -83,23 +92,22 @@ var getHeight = function(A, B) {
           //console.log('index', i);
           var nodeId = JSON.stringify(body['elements'][i]['nodes'][0])
           nodeBlock = nodeBlock + getNodeName(nodeId);
-          nodeList[nodeId] = body['elements'][i]['tags']['height'];
+          heightList[nodeId] = body['elements'][i]['tags']['height'];
         }
       }
-      getPoints(nodeBlock);
+      fetchNodes(nodeBlock);
     } else {
-      console.log('getHeight() failed');
+      console.log('fetchHeight() failed');
     }
   });
 }
 
-var cordList = new Object();
 /*
  * Overpass API request can't handle more than a certain number of nodes, so keep it small!
  * Outputs nodeIds and their corresponding latitude/longitude
  * @param nodeBlock - correctly formated QL code to get nodes from Overpass API
  * */
-var getPoints = function(nodeBlock) {
+var fetchNodes = function(nodeBlock) {
   request(apiCall(getQuery(nodeBlock)), function(err, res, body) {
     if (!err && res.statusCode == 200) {
       body = JSON.parse(body);
@@ -109,7 +117,7 @@ var getPoints = function(nodeBlock) {
       }
       getShadow();
     } else {
-      console.log('getPoints() failed: rectangle sized too big');
+      console.log('fetchNodes() failed: rectangle sized too big');
     }
   });
 }
@@ -122,52 +130,96 @@ var getShadowLength = function(buildingHeight, sunAltitude) {
   return buildingHeight / Math.tan(sunAltitude);
 }
 
-var shadowList = new Object();
 /*
  * Calculates the shadow lenght of each building depending on sun's altitude at that time
  * */
 var getShadow = function() {
+  console.log(cordList)
   var firstKey = Object.keys(cordList)[0];
   var str = cordList[firstKey].split(',');
-  //var tempDate = 'Mon May 25 2015 09:50:04 GMT-0700 (PDT)' // REPLACE TEMP WITH new Date() WHEN SUN IS UP!!!!!
   var position = SunCalc.getPosition(new Date(), str[0], str[1]);
   /*
-  var times = SunCalc.getTimes(new Date, str[0], str[1]);
-  if (new Date() > times.sunset || new Date() < times.sunrise) {
-    console.log("This app only works when the sun is up, yo!")
-  } else {
-    for (key in cordList) {
-      console.log(nodeList[key]);
-      shadowList[key] = getShadowLength(nodeList[key], position.altitude);
-    }
-    console.log(shadowList);
-  }
-  UNCOMMENT THIS AFTER DEMO AND PEOPLE CAN'T USE IT AT NIGHT ANYMORE
-  */
+     var times = SunCalc.getTimes(new Date, str[0], str[1]);
+     if (new Date() > times.sunset || new Date() < times.sunrise) {
+     console.log("This app only works when the sun is up, yo!")
+     } else {
+     for (key in cordList) {
+     console.log(heightList[key]);
+     shadowList[key] = getShadowLength(heightList[key], position.altitude);
+     }
+     console.log(shadowList);
+     }
+     UNCOMMENT THIS AFTER DEMO AND PEOPLE CAN'T USE IT AT NIGHT ANYMORE
+     */
 
   // REMEMBER TO TEST WHEN THE SUN IS UP
   for (key in cordList) {
-    shadowList[key] = getShadowLength(nodeList[key], position.altitude);
+    shadowList[key] = getShadowLength(heightList[key], position.altitude);
   }
   console.log(shadowList);
 }
 
 
 
-
 // sample points to build path around
 // (40.731847, -73.997396) - Washington Square Park coordinates
 // (40.749045, -74.004902) - the High Line
-var A = "40.739847, -73.999396";
-var B = "40.740045, -74.000902";
+var A = "40.739847,-73.999396";
+var B = "40.740045,-74.000902";
 
-getHeight(A, B);
+//fetchHeight(A, B);
+//
+//
+//
+var url = 'https://maps.googleapis.com/maps/api/directions/json?';
+var origin = function(src) { return 'origin=' + src; }
+var destination = function(dest) { return 'destination='+ dest; }
+var mode = function(m) { return 'mode=' + m; }
+var alternative = function(alt) { return 'alternative=' + alt; }
 
 
+urlwalk = url + origin("40.730847,-73.990396") + '&' + destination("40.740045,-74.000902") + '&' + mode('walking') + '&' + alternative('true') + '&' + API_KEY;
+
+urldrive = url + origin("40.730847,-73.990396") + '&' + destination("40.740045,-74.000902") + '&' + mode('driving') + '&' + alternative('true') + '&' + API_KEY;
+
+urlbike = url + origin("40.730847,-73.990396") + '&' + destination("40.740045,-74.000902") + '&' + mode('bicycling') + '&' + alternative('true') + '&' + API_KEY;
 
 
+var requestWalk = function(urlwalk) {
+  request(urlwalk, function(err, res, body) {
+    if (!err) {
+      body = JSON.parse(body);
+      console.log(body.routes[0].legs[0].steps[0]);
+      //requestDrive(urldrive);
+    } else {
+      console.log('urlwalk didnt work');
+    }
+  })
+}
+
+var requestDrive = function(urldrive) {
+  request(urldrive, function(err, res, body) {
+    if (!err) {
+      //console.log(body);
+      requestBike(urlbike);
+    } else {
+      console.log('urldrive route didnt work');
+    }
+  })
+}
+
+var requestBike = function(urlbike) {
+  request(urlbike, function(err, res, body) {
+    if (!err) {
+      console.log(body);
+    } else {
+      console.log('urlbike route didnt work');
+    }
+  })
+}
 
 
+requestWalk(urlwalk);
 
 
 
