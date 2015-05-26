@@ -3,7 +3,6 @@ var request = require('request');
 var gm = require('googlemaps');
 var util = require('util');
 
-
 /*
  * get right inputs for formattingRect(), use lat/lon of A and B to contruct a box
  * */
@@ -92,17 +91,21 @@ var fetchHeight = function(A, B, type) {
     if (!err && res.statusCode == 200) {
       var nodeBlock = "";
       body = JSON.parse(body);
-      for (var i = 0; i < body['elements'].length; i++){
-        if (body['elements'][i]['nodes'] instanceof Array){
-          //console.log('index', i);
-          var nodeId = JSON.stringify(body['elements'][i]['nodes'][0])
-          nodeBlock = nodeBlock + getNodeName(nodeId);
-          heightList[nodeId] = body['elements'][i]['tags']['height'];
+      if (body['elements'].length > 0) {
+        for (var i = 0; i < body['elements'].length; i++){
+          if (body['elements'][i]['nodes'] instanceof Array){
+            //console.log('index', i);
+            var nodeId = JSON.stringify(body['elements'][i]['nodes'][0])
+            nodeBlock = nodeBlock + getNodeName(nodeId);
+            heightList[nodeId] = body['elements'][i]['tags']['height'];
+          }
         }
+        fetchNodes(nodeBlock, type);
+      } else {
+        console.log('Overpass API doesn\'t have any buildings logged here, you are out of luck!');
       }
-      fetchNodes(nodeBlock, type);
     } else {
-      console.log('fetchHeight() failed');
+      console.log('fetchHeight() failed, returned nothing');
     }
   });
 }
@@ -139,9 +142,8 @@ var getShadowLength = function(buildingHeight, sunAltitude) {
  * Calculates the shadow lenght of each building depending on sun's altitude at that time
  * */
 var getShadow = function(type) {
-  var badness = 0;
   var firstKey = Object.keys(cordList)[0];
-  console.log(firstKey);
+  // console.log(cordList);
   var str = cordList[firstKey].split(',');
   var position = SunCalc.getPosition(new Date(), str[0], str[1]);
   /*
@@ -159,9 +161,13 @@ var getShadow = function(type) {
      */
 
   // DEMO USE ONLY CODE
+  var value;
   for (key in cordList) {
-    shadowList[key] = getShadowLength(heightList[key], position.altitude);
-    badnessList[type] = getShadowLength(heightList[key], position.altitude) + badnessList[type];
+    value = getShadowLength(heightList[key], position.altitude);
+    if (!isNaN(value)){
+      shadowList[key] = value;
+      badnessList[type] = value + badnessList[type];
+    }
   }
   console.log(badnessList);
 }
@@ -183,7 +189,7 @@ var directionUrl = function(src, dest, travel) {
       if (!err) {
         body = JSON.parse(body);
         var steps = body.routes[0].legs[0].steps;
-        for (i=0; i< steps.length; i++) {
+        for (var i=0; i< steps.length; i++) {
           if (i===0) {
             fetchHeight(A, cordString(steps[0].start_location.lat, steps[0].start_location.lng), 'walk');
           } else {
@@ -193,7 +199,6 @@ var directionUrl = function(src, dest, travel) {
             var prevlon = steps[i-1].start_location.lng;
             fetchHeight(cordString(prevlat, prevlon), cordString(lat, lon), 'walk');
           }
-
         }
         requestDrive(directionUrl('driving'), A, B);
       } else {
@@ -208,7 +213,7 @@ var directionUrl = function(src, dest, travel) {
         //console.log(body);
         body = JSON.parse(body);
         var steps = body.routes[0].legs[0].steps;
-        for (i=0; i< steps.length; i++) {
+        for (var i=0; i< steps.length; i++) {
           if (i===0) {
             fetchHeight(A, cordString(steps[0].start_location.lat, steps[0].start_location.lng), 'drive');
           } else {
@@ -218,7 +223,7 @@ var directionUrl = function(src, dest, travel) {
             var prevlon = steps[i-1].start_location.lng;
             fetchHeight(cordString(prevlat, prevlon), cordString(lat, lon), 'drive');
           }
-
+          console.log('hi');
         }
         requestBike(directionUrl('bicycling'), A, B);
       } else {
@@ -232,7 +237,7 @@ var directionUrl = function(src, dest, travel) {
       if (!err) {
         body = JSON.parse(body);
         var steps = body.routes[0].legs[0].steps;
-        for (i=0; i< steps.length; i++) {
+        for (var i=0; i< steps.length; i++) {
           if (i===0) {
             fetchHeight(A, cordString(steps[0].start_location.lat, steps[0].start_location.lng), 'bike');
           } else {
@@ -251,19 +256,35 @@ var directionUrl = function(src, dest, travel) {
     })
   }
 
+  /*
+   * HOORAY! WE ARE AT THE END OF ASYNC HELL!
+   * */
+  var determineBestPath = function() {
+    var walk = badnessList['walk'];
+    var drive = badnessList['drive'];
+    var bike = badnessList['bike'];
+    if (walk > drive && walk > bike) {
+      console.log("walk is best!");
+    } else if ( drive > walk && drive > bike) {
+      console.log("drive is best!");
+    } else if (bike > walk && bike > drive){
+      console.log("bike is best!");
+    } else {
+      console.log("wutwut");
+    }
+  }
 
 
 
-// sample points to build path around
-// (40.731847, -73.997396) - Washington Square Park coordinates
-// (40.749045, -74.004902) - the High Line
-var A = "40.739847,-73.999396";
-var B = "40.740045,-74.000902";
+  // sample points to build path around
+  // (40.731847, -73.997396) - Washington Square Park coordinates
+  // (40.749045, -74.004902) - the High Line
+  // 37.755138, -122.418481 - SF mission 
+  // 37.764876, -122.408182 - SF mariposa
+  var A = "40.731847,-73.997396";
+  var B = "40.749045,-74.004902";
 
   requestWalk(directionUrl(A, B, 'walking'), A, B);
-
-
-
 
 
 
